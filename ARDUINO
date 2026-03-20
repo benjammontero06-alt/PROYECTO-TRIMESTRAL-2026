@@ -1,0 +1,285 @@
+#include <WiFiS3.h>
+#include <ArduinoJson.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+// ======================= WIFI =======================
+const char* WIFI_SSID = "";
+const char* WIFI_PASS = "";
+
+// ======================= BACKEND =======================
+const char* BACKEND_HOST = "192.168.100.16";
+const int   BACKEND_PORT = 8080;
+
+const char* READINGS_PATH = "/api/readings";
+const char* PWM_PATH      = "/api/control/pwm";
+
+// ======================= PINES =======================
+const int PIN_PWM_MOTOR = 5;
+const int PIN_ACS712    = A0;
+const int PIN_DS18B20   = 2;
+
+// ======================= DS18B20 =======================
+OneWire oneWire(PIN_DS18B20);
+DallasTemperature sensors(&oneWire);
+
+// ======================= ACS712 =======================
+const float ACS_SENSITIVITY = 0.185;   // ACS712 5A = 185 mV/A
+const float ADC_REF_VOLTAGE = 5.0;
+const int   ADC_RESOLUTION  = 1023;
+
+float zeroCurrentVoltage = 2.5;
+
+// ======================= SISTEMA =======================
+const float SUPPLY_VOLTAGE = 12.0;
+int currentPwm = 180;
+
+// ======================================================
+// WIFI
+// ======================================================
+
+void connectWiFi() {
+  Serial.print("Conectando a WiFi");
+
+  while (WiFi.begin(WIFI_SSID, WIFI_PASS) != WL_CONNECTED) {
+    Serial.print(".");
+    delay(2000);
+  }
+
+  Serial.println();
+  Serial.println("WiFi conectado");
+  Serial.print("IP Arduino: ");
+  Serial.println(WiFi.localIP());
+}
+
+// ======================================================
+// ACS712
+// ======================================================
+
+float calibrateACS712() {
+  const int samples = 200;
+  long sum = 0;
+
+  Serial.println("Calibrando ACS712 con motor apagado...");
+
+  analogWrite(PIN_PWM_MOTOR, 0);
+  delay(1000);
+
+  for (int i = 0; i < samples; i++) {
+    sum += analogRead(PIN_ACS712);
+    delay(5);
+  }
+
+  float avgReading = sum / (float)samples;
+  float voltage = avgReading * (ADC_REF_VOLTAGE / ADC_RESOLUTION);
+
+  Serial.print("Offset ACS712: ");
+  Serial.print(voltage, 4);
+  Serial.println(" V");
+
+  return voltage;
+}
+
+float readCurrent() {
+  const int samples = 50;
+  long sum = 0;
+
+  for (int i = 0; i < samples; i++) {
+    sum += analogRead(PIN_ACS712);
+    delay(2);
+  }
+
+  float avgReading = sum / (float)samples;
+  float voltage = avgReading * (ADC_REF_VOLTAGE / ADC_RESOLUTION);
+
+  float current = abs((voltage - zeroCurrentVoltage) / ACS_SENSITIVITY);
+
+  if (current < 0.08) {
+    current = 0.0;
+  }
+
+  return current;
+}
+
+// ======================================================
+// TEMPERATURA
+// ======================================================
+
+float readTemperature() {
+  sensors.requestTemperatures();
+  float temp = sensors.getTempCByIndex(0);
+
+  if (temp == DEVICE_DISCONNECTED_C || temp == -127.0) {
+    return 0.0;
+  }
+
+  return temp;
+}
+
+// ======================================================
+// LEER PWM DEL BACKEND
+// ======================================================
+
+int getPWMFromServer() {
+  WiFiClient client;
+
+  if (!client.connect(BACKEND_HOST, BACKEND_PORT)) {
+    Serial.println("No se pudo conectar para leer PWM");
+    return -1;
+  }
+
+  client.print("GET ");
+  client.print(PWM_PATH);
+  client.println(" HTTP/1.1");
+  client.print("Host: ");
+  client.println(BACKEND_HOST);
+  client.println("Connection: close");
+  client.println();
+
+  String response = "";
+  unsigned long timeout = millis();
+
+  while (client.connected() && millis() - timeout < 5000) {
+    while (client.available()) {
+      char c = client.read();
+      response += c;
+      timeout = millis();
+    }
+  }
+
+  client.stop();
+
+  int jsonStart = response.indexOf("{");
+  int jsonEnd   = response.lastIndexOf("}");
+
+  if (jsonStart == -1 || jsonEnd == -1) {
+    Serial.println("Respuesta inválida al leer PWM");
+    return -1;
+  }
+
+  String json = response.substring(jsonStart, jsonEnd + 1);
+
+  StaticJsonDocument<128> doc;
+  DeserializationError error = deserializeJson(doc, json);
+
+  if (error) {
+    Serial.print("Error parseando PWM: ");
+    Serial.println(error.c_str());
+    return -1;
+  }
+
+  if (!doc["pwm"].is<int>()) {
+    return -1;
+  }
+
+  return doc["pwm"];
+}
+
+// ======================================================
+// ENVIAR DATOS AL BACKEND
+// ======================================================
+
+void sendData(float temp, float current, int pwm) {
+  WiFiClient client;
+
+  float voltage = SUPPLY_VOLTAGE;
+  float power = voltage * current;
+
+  StaticJsonDocument<256> doc;
+  doc["tempC"] = temp;
+  doc["currentA"] = current;
+  doc["voltageV"] = voltage;
+  doc["powerW"] = power;
+  doc["pwm"] = pwm;
+
+  String json;
+  serializeJson(doc, json);
+
+  if (!client.connect(BACKEND_HOST, BACKEND_PORT)) {
+    Serial.println("No se pudo conectar al backend");
+    return;
+  }
+
+  client.print("POST ");
+  client.print(READINGS_PATH);
+  client.println(" HTTP/1.1");
+  client.print("Host: ");
+  client.println(BACKEND_HOST);
+  client.println("Content-Type: application/json");
+  client.print("Content-Length: ");
+  client.println(json.length());
+  client.println("Connection: close");
+  client.println();
+  client.println(json);
+
+  unsigned long timeout = millis();
+  while (client.connected() && millis() - timeout < 2000) {
+    while (client.available()) {
+      client.read();
+      timeout = millis();
+    }
+  }
+
+  client.stop();
+}
+
+// ======================================================
+// SERIAL
+// ======================================================
+
+void printData(float temp, float current, float voltage, float power, int pwm) {
+  Serial.print("Temperatura: ");
+  Serial.print(temp, 2);
+  Serial.print(" °C | Corriente: ");
+  Serial.print(current, 3);
+  Serial.print(" A | Voltaje: ");
+  Serial.print(voltage, 2);
+  Serial.print(" V | Potencia: ");
+  Serial.print(power, 3);
+  Serial.print(" W | PWM: ");
+  Serial.println(pwm);
+}
+
+// ======================================================
+// SETUP
+// ======================================================
+
+void setup() {
+  Serial.begin(9600);
+  delay(1500);
+
+  pinMode(PIN_PWM_MOTOR, OUTPUT);
+  analogWrite(PIN_PWM_MOTOR, 0);
+
+  sensors.begin();
+
+  connectWiFi();
+
+  zeroCurrentVoltage = calibrateACS712();
+
+  Serial.println("Sistema iniciado");
+}
+
+// ======================================================
+// LOOP
+// ======================================================
+
+void loop() {
+  int pwmFromServer = getPWMFromServer();
+
+  if (pwmFromServer >= 0 && pwmFromServer <= 255) {
+    currentPwm = pwmFromServer;
+  }
+
+  analogWrite(PIN_PWM_MOTOR, currentPwm);
+
+  float temperature = readTemperature();
+  float current = readCurrent();
+  float voltage = SUPPLY_VOLTAGE;
+  float power = voltage * current;
+
+  printData(temperature, current, voltage, power, currentPwm);
+  sendData(temperature, current, currentPwm);
+
+  delay(2000);
+}
