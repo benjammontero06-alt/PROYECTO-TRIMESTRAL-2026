@@ -1,0 +1,10 @@
+POST http://localhost:8080/api/readings
+Content-Type: application/json
+
+{
+  "tempC": 36.5,
+  "currentA": 2.1,
+  "voltageV": 12.0,
+  "powerW": 25.2,
+  "pwm": 0.75
+}

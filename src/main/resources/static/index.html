@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>MotorSense Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+
+        h1 { margin-bottom: 5px; }
+
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: bold;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+
+        .ok { background-color: #d4edda; color: #155724; }
+        .alert { background-color: #f8d7da; color: #721c24; }
+
+        .card {
+            background: white;
+            padding: 15px;
+            margin: 10px;
+            border-radius: 10px;
+            display: inline-block;
+            width: 200px;
+            text-align: center;
+            box-shadow: 0 0 5px rgba(0,0,0,0.1);
+        }
+
+        button {
+            padding: 10px 15px;
+            margin-top: 15px;
+            margin-right: 10px;
+            border-radius: 8px;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+
+        canvas {
+            background: white;
+            padding: 10px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        .control-box {
+            background: white;
+            padding: 15px;
+            margin: 10px;
+            border-radius: 10px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.1);
+            width: fit-content;
+        }
+
+        #pwmSlider {
+            width: 300px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>MotorSense Dashboard 🚀</h1>
+
+<div id="statusBox" class="status ok">
+    Sistema funcionando normalmente
+</div>
+
+<div>
+    <div class="card">
+        <h3>Temperatura</h3>
+        <p id="temp">-- °C</p>
+    </div>
+
+    <div class="card">
+        <h3>Corriente</h3>
+        <p id="current">-- A</p>
+    </div>
+
+    <div class="card">
+        <h3>Voltaje</h3>
+        <p id="voltage">-- V</p>
+    </div>
+
+    <div class="card">
+        <h3>Potencia</h3>
+        <p id="power">-- W</p>
+    </div>
+</div>
+
+<div class="control-box">
+    <h3>Control de Velocidad del Motor</h3>
+    <input type="range" id="pwmSlider" min="0" max="255" value="180">
+    <span id="pwmValue">180</span>
+    <br>
+    <button onclick="sendPwm()">Aplicar PWM</button>
+    <p id="pwmResponse"></p>
+</div>
+
+<div class="control-box">
+    <h3>Modo de Control</h3>
+    <button onclick="setMode(true)">Modo automático</button>
+    <button onclick="setMode(false)">Modo manual</button>
+    <p id="modeResponse"></p>
+</div>
+
+<button onclick="getRecommendation()">Obtener recomendación inteligente 🤖</button>
+<p id="recommendation"></p>
+
+<h2>Histórico</h2>
+<canvas id="chart" width="900" height="350"></canvas>
+
+<script>
+    const API = "http://localhost:8080/api";
+
+    const pwmSlider = document.getElementById("pwmSlider");
+    const pwmValue = document.getElementById("pwmValue");
+
+    pwmSlider.addEventListener("input", () => {
+        pwmValue.innerText = pwmSlider.value;
+    });
+
+    async function sendPwm() {
+        const pwm = parseInt(pwmSlider.value);
+
+        const response = await fetch("http://localhost:8080/api/control/pwm", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ pwm: pwm })
+        });
+
+        const data = await response.json();
+        document.getElementById("pwmResponse").innerText =
+            "PWM aplicado: " + data.pwm;
+    }
+
+    async function setMode(auto) {
+        const response = await fetch(`http://localhost:8080/api/control/mode?auto=${auto}`, {
+            method: "POST"
+        });
+
+        const text = await response.text();
+        document.getElementById("modeResponse").innerText = text;
+    }
+
+    async function loadLatest() {
+        const response = await fetch(API + "/readings/latest");
+        if (response.status === 204) return;
+
+        const data = await response.json();
+
+        document.getElementById("temp").innerText = data.tempC + " °C";
+        document.getElementById("current").innerText = data.currentA + " A";
+        document.getElementById("voltage").innerText = data.voltageV + " V";
+        document.getElementById("power").innerText = data.powerW + " W";
+
+        checkAlert(data);
+    }
+
+    function checkAlert(data) {
+        const statusBox = document.getElementById("statusBox");
+
+        if (data.tempC > 60 || data.currentA > 3) {
+            statusBox.className = "status alert";
+            statusBox.innerText = "⚠ ALERTA: Valores fuera de rango";
+        } else {
+            statusBox.className = "status ok";
+            statusBox.innerText = "Sistema funcionando normalmente";
+        }
+    }
+
+    async function loadHistory() {
+        const response = await fetch(API + "/readings");
+        const data = await response.json();
+
+        const labels = data.map(r => r.timestamp);
+        const temps = data.map(r => r.tempC);
+        const currents = data.map(r => r.currentA);
+
+        chart.data.labels = labels;
+        chart.data.datasets[0].data = temps;
+        chart.data.datasets[1].data = currents;
+        chart.update();
+    }
+
+    async function getRecommendation() {
+        const response = await fetch(API + "/analysis/alert");
+        const text = await response.text();
+        document.getElementById("recommendation").innerText = text;
+    }
+
+    const ctx = document.getElementById('chart').getContext('2d');
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Temperatura °C',
+                    data: [],
+                    borderWidth: 2
+                },
+                {
+                    label: 'Corriente A',
+                    data: [],
+                    borderWidth: 2
+                }
+            ]
+        }
+    });
+
+    setInterval(() => {
+        loadLatest();
+        loadHistory();
+    }, 2000);
+</script>
+
+</body>
+</html>
