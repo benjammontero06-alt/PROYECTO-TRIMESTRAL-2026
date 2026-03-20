@@ -198,6 +198,7 @@ Puedes probar los endpoints usando:
 ## Autor
 
 * Bryan Ramírez
+* Benjamín Morales
 
 ---
 
