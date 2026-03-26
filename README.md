@@ -1,6 +1,6 @@
-# 🚀 MotorSense IoT – Proyecto Trimestral 2026
+#  MotorSense IoT – Proyecto Trimestral 2026
 
-## 📌 Descripción General
+##  Descripción General
 
 **MotorSense IoT** es un sistema inteligente orientado a la Industria 4.0 que permite monitorear, analizar y optimizar el comportamiento de sistemas mecatrónicos mediante el uso de sensores, backend en Java y análisis con inteligencia artificial.
 
@@ -8,7 +8,7 @@ El sistema captura datos desde hardware físico (Arduino), los procesa en un bac
 
 ---
 
-## 🎯 Objetivos del Sistema
+##  Objetivos del Sistema
 
 * Implementar una solución IoT completa (hardware + software)
 * Procesar datos en tiempo real desde sensores
@@ -18,7 +18,7 @@ El sistema captura datos desde hardware físico (Arduino), los procesa en un bac
 
 ---
 
-## 🧠 Tecnologías Utilizadas
+##  Tecnologías Utilizadas
 
 ### 🔹 Backend
 
@@ -47,7 +47,7 @@ El sistema captura datos desde hardware físico (Arduino), los procesa en un bac
 
 ---
 
-## 🏗️ Arquitectura del Sistema
+##  Arquitectura del Sistema
 
 ```id="archi01"
 [Sensores - Arduino]
@@ -67,7 +67,7 @@ El sistema captura datos desde hardware físico (Arduino), los procesa en un bac
 
 ---
 
-## 🔄 Flujo de Datos
+##  Flujo de Datos
 
 1. Arduino captura datos desde sensores
 2. Envía los datos al backend mediante HTTP o serial
@@ -79,21 +79,21 @@ El sistema captura datos desde hardware físico (Arduino), los procesa en un bac
 
 ---
 
-## 📡 Endpoints Principales
+##  Endpoints Principales
 
-### 📥 Recepción de datos
+###  Recepción de datos
 
 ```http
 POST /api/sensors
 ```
 
-### 📊 Consulta de datos históricos
+###  Consulta de datos históricos
 
 ```http
 GET /api/sensors
 ```
 
-### 🤖 Análisis con IA
+###  Análisis con IA
 
 ```http
 POST /api/analyze
